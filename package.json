@@ -7,7 +7,7 @@
     "node": "24.x"
   },
   "scripts": {
-    "dev": "tsc --noEmit false --outDir .local && node .local/src/dev.js",
+    "dev": "tsc --noEmit false --outDir dist && node dist/src/dev.js",
     "test": "vitest run",
     "build": "tsc --noEmit",
     "check": "npm test && npm run build"

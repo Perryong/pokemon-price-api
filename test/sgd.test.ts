@@ -73,3 +73,12 @@ it.each(['/api/market/rates','/api/market/cards/cel25-5?currency=SGD'])('rejects
   await vi.advanceTimersByTimeAsync(2000);
   expect((await response).status).toBe(503);
 });
+it.each(['','&currency=SGD'])('accepts Vercel dynamic routing metadata matching the path: %s',async suffix=>{
+  const result=await request('/api/market/cards/cel25-5?id=cel25-5'+suffix);
+  expect(result.status).toBe(200);
+  expect(result.data.schemaVersion).toBe(suffix?2:1);
+});
+it.each(['id=base1-58','id=cel25-5&id=cel25-5'])('rejects conflicting or duplicate route metadata: %s',async query=>{
+  expect((await request('/api/market/cards/cel25-5?'+query)).status).toBe(400);
+  expect(fetch).not.toHaveBeenCalled();
+});

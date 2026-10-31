@@ -81,6 +81,8 @@ export function marketMiddleware() {
     const rawPath = req.url ?? '';
     const url = new URL(rawPath, 'http://local');
     const path = rawPath.split('?')[0];
+    // Vercel adds the dynamic segment as an id query parameter.
+    if (path.startsWith('/api/market/cards/') && url.searchParams.getAll('id').length === 1 && url.searchParams.get('id') === path.slice('/api/market/cards/'.length)) url.searchParams.delete('id');
     if (path !== '/api/market' && !path.startsWith('/api/market/')) { next(); return; }
     res.setHeader('Access-Control-Allow-Origin', '*');
     res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');

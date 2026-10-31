@@ -1,5 +1,7 @@
 # Pokémon Price API
 
+Live service: https://pokemon-price-api-omega.vercel.app
+
 Standalone public, read-only API for Pokémon reference card prices. Runs on Vercel independently of your Mac. Extracted from the validated market service in [pokemon-tracker](https://github.com/Perryong/pokemon-tracker).
 
 ## Endpoints
@@ -18,14 +20,14 @@ SGD values are rounded to two decimals. TCGdex supplies Cardmarket EUR and TCGpl
 
 ## Use from pokemon-tracker
 
-The existing app expects version 1 quotes and converts them for display. Preserve that contract by forwarding its `/api/market/` requests to this service. For a Vercel frontend, place this rewrite **before** its SPA fallback in the frontend's `vercel.json` (replace `PRICE_API_ORIGIN` with this service's production origin):
+The existing app expects version 1 quotes and converts them for display. Preserve that contract by forwarding its `/api/market/` requests to this service. For a Vercel frontend, place this rewrite **before** its SPA fallback in the frontend's `vercel.json`:
 
 ```json
 {
   "rewrites": [
     {
       "source": "/api/market/:path*",
-      "destination": "https://PRICE_API_ORIGIN/api/market/:path*"
+      "destination": "https://pokemon-price-api-omega.vercel.app/api/market/:path*"
     }
   ]
 }
@@ -59,4 +61,4 @@ Requests use fixed HTTPS provider hosts, reject redirects and invalid IDs, time 
 
 ## Verification
 
-`npm run check` runs the regression suite and strict TypeScript checking. Tests cover partial search, hostile IDs, schema boundaries, bounded responses, provider errors/cooldowns, cache expiry, CORS, more than 30 distinct requests, SGD conversion and FX validation. `npm audit` checks dependency advisories. See `docs/verification.md` for deployment evidence.
+`npm run check` runs the regression suite and strict TypeScript checking. Tests cover partial search, hostile IDs, schema boundaries, bounded responses, provider errors/cooldowns, cache expiry, CORS, more than 30 distinct requests, SGD conversion and FX validation. `npm audit` checks dependency advisories. `npm run smoke -- https://pokemon-price-api-omega.vercel.app` checks public hosted responses and live providers. See `docs/verification.md` for deployment evidence.

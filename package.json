@@ -10,7 +10,8 @@
     "dev": "tsc --noEmit false --outDir dist && node dist/src/dev.js",
     "test": "vitest run",
     "build": "tsc --noEmit",
-    "check": "npm test && npm run build"
+    "check": "npm test && npm run build",
+    "smoke": "node scripts/smoke.mjs"
   },
   "dependencies": {
     "zod": "^4.6.7"

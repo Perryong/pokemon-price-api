@@ -1,0 +1,24 @@
+import { afterEach, expect, it, vi } from 'vitest';
+import { createServer, type Server } from 'node:http';
+import handler from '../src/handler.js';
+import health from '../api/market/health.js';
+import search from '../api/market/search.js';
+import rates from '../api/market/rates.js';
+import card from '../api/market/cards/[id].js';
+let server: Server;
+afterEach(async () => { vi.unstubAllGlobals(); if (server) await new Promise<void>(resolve => server.close(() => resolve())); });
+it('serves the Vercel handlers over HTTP, including preflight, read-only enforcement and fallback', async () => {
+  expect([health, search, rates, card].every(route => route === handler)).toBe(true);
+  server = createServer((req, res) => { void handler(req, res); });
+  await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve));
+  const address = server.address();
+  if (!address || typeof address === 'string') throw new Error('No port');
+  const base = `http://127.0.0.1:${address.port}`;
+  const response = await fetch(`${base}/api/market/health`);
+  expect(response.status).toBe(200);
+  expect(response.headers.get('access-control-allow-origin')).toBe('*');
+  expect(await response.json()).toMatchObject({ service: 'market-prices', schemaVersion: 1 });
+  expect((await fetch(`${base}/api/market/cards/base1-58`, { method: 'OPTIONS' })).status).toBe(204);
+  expect((await fetch(`${base}/api/market/cards/base1-58`, { method: 'POST' })).status).toBe(405);
+  expect((await fetch(`${base}/missing`)).status).toBe(404);
+});

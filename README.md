@@ -4,21 +4,55 @@ Live service: https://pokemon-price-api-omega.vercel.app
 
 Standalone public, read-only API for Pokémon reference card prices. Runs on Vercel independently of your Mac. Extracted from the validated market service in [pokemon-tracker](https://github.com/Perryong/pokemon-tracker).
 
+Machine-readable contract: [OpenAPI 3.1](https://pokemon-price-api-omega.vercel.app/openapi.json). This is an API service; the homepage is integration documentation.
+
 ## Endpoints
 
 | GET endpoint | Response |
 | --- | --- |
 | `/api/market/health` | Service identity; does not check upstream availability |
-| `/api/market/search?q=pika` | Partial-name matches, exact names first, up to 500 cards |
-| `/api/market/cards/base1-58` | Version 1 reference quotes in original EUR/USD; existing tracker contract |
-| `/api/market/cards/base1-58?currency=SGD` | Version 2 SGD quotes, original currency and dated exchange-rate provenance |
+| `/api/market/search?q={pokemon_name}` | Partial-name matches, exact names first, up to 500 cards |
+| `/api/market/search?q={pokemon_name}&include=prices&limit=3&page=1` | Version 2 matching cards with per-card SGD pricing; paginated, default 3 and maximum 6 cards |
+| `/api/market/cards/{card_id}` | Version 1 reference quotes in original EUR/USD; existing tracker contract |
+| `/api/market/cards/{card_id}?currency=SGD` | Version 2 SGD quotes, original currency and dated exchange-rate provenance |
 | `/api/market/rates` | EUR/USD to SGD rates with observation dates and expiry timestamps |
 
 Search accepts 2–60 characters. Cards without available prices return an empty `quotes` array. Search ordering is relevance, not sales popularity. Prices and 1/7/30-day averages are reference values, not executable offers or daily price history.
 
 SGD values are rounded to two decimals. TCGdex supplies Cardmarket EUR and TCGplayer USD prices. Frankfurter supplies ECB reference exchange rates. FX data older than seven days, missing rates or failed conversion return HTTP 503; native prices are never relabeled as SGD. Native quotes remain available when FX is unavailable. Check `updatedAt`, `fetchedAt`, `freshness` and `exchangeRate.date` before using any quote.
 
-## Use from pokemon-tracker
+## Use from pokemon-tcg
+
+Any name is supported, for example Charizard, Eevee, Mew, or a partial name. Search results return the card IDs used by the pricing endpoint. There is no Pikachu-specific algorithm.
+
+```js
+const origin = 'https://pokemon-price-api-omega.vercel.app';
+async function searchCardPrices(pokemonName, page = 1) {
+  const query = new URLSearchParams({
+    q: pokemonName, include: 'prices', limit: '3', page: String(page)
+  });
+  const response = await fetch(`${origin}/api/market/search?${query}`);
+  if (!response.ok) throw new Error(`Price API: HTTP ${response.status}`);
+  return response.json();
+}
+const result = await searchCardPrices('charizard');
+for (const card of result.cards) {
+  if (card.pricing.status === 200) {
+    // Already SGD. Do not convert these amounts again.
+    console.log(card.id, card.pricing.data.quotes);
+  } else {
+    console.log(card.id, card.pricing.error, card.pricing.retryAfterSeconds);
+  }
+}
+```
+
+Price-enriched search uses `schemaVersion: 2`, `currency: "SGD"`, `page`, `limit`, `total`, `nextPage`, `truncated`, `partial`, and `cards`. Each card retains its ID/name/optional image plus `pricing: {status: 200, data: <SGD card response>}` or `pricing: {status, error, retryAfterSeconds?}`. `quotes: []` means no available quotes; zero is a valid price and is preserved. HTTP 200 may include `partial: true`; always inspect each card's pricing status. Per-card failures are retriable and never CDN-cached as successful pricing.
+
+`page` (1–500) and `limit` (1–6) are allowed only with `include=prices`; no currency parameter is needed because enriched search is always SGD. Default limit is 3. `total` counts retained matches (at most 500), not the entire catalogue. `nextPage: null` means those retained matches are exhausted. If `truncated` is true, refine the search. Ordering is relevance, not price or popularity. Each request fetches prices only for that page, in one batch capped at six cards; it does not fetch all 500 prices. Composite cache expiry never exceeds the earliest source/FX expiry.
+
+For lightweight discovery or loading prices only after selection, keep using `GET /api/market/search?q={name}` followed by `GET /api/market/cards/{id}?currency=SGD`. Existing q-only v1 search/native-price callers continue to work.
+
+### Existing tracker integration
 
 The existing app expects version 1 quotes and converts them for display. Preserve that contract by forwarding its `/api/market/` requests to this service. For a Vercel frontend, place this rewrite **before** its SPA fallback in the frontend's `vercel.json`:
 

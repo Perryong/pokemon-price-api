@@ -77,6 +77,49 @@ export function marketMiddleware() {
       return { status: timeout ? 504 : 502, data: { error: timeout ? 'provider_timeout' : 'provider_unavailable' } };
     }
   }
+  async function lookup(id: string, query?: string): Promise<{ status: number; data: unknown; expires?: number }> {
+    const cached = cache.get(id);
+    if (cached && cached.expires > Date.now()) {
+      return { status: 200, data: 'quotes' in cached.data ? { ...cached.data, quotes: cached.data.quotes.map(quote => ({ ...quote, freshness: freshness(quote.updatedAt) })) } : cached.data, expires: cached.expires };
+    }
+    cache.delete(id);
+    let request = pending.get(id);
+    if (!request) {
+      if (providerRetryAt > Date.now()) return limited('provider_rate_limited', providerRetryAt);
+      request = load(id, query).finally(() => pending.delete(id));
+      pending.set(id, request);
+    }
+    return await request;
+  }
+  async function withPrices(search: MarketSearchResult, page: number, limit: number, sourceExpires: number) {
+    type Pricing = { status: number; data?: Awaited<ReturnType<typeof fx.convert>>['data']; error?: string; retryAfterSeconds?: number };
+    let expires = sourceExpires;
+    const cards = await Promise.all(search.cards.slice((page - 1) * limit, page * limit).map(async card => {
+      const result = await lookup(card.id);
+      let pricing: Pricing;
+      if (result.status !== 200) {
+        const failure = object(result.data);
+        pricing = { status: result.status, error: String(failure.error), ...(typeof failure.retryAfterSeconds === 'number' ? { retryAfterSeconds: failure.retryAfterSeconds } : {}) };
+        expires = 0;
+      } else {
+        try {
+          const converted = await fx.convert(result.data as MarketCard);
+          expires = Math.min(expires, result.expires ?? 0, converted.expires);
+          pricing = { status: 200, data: converted.data };
+        } catch { pricing = { status: 503, error: 'exchange_rate_unavailable' }; expires = 0; }
+      }
+      return { ...card, pricing };
+    }));
+    // Another card may finish after the earliest FX rate has expired.
+    for (const card of cards) {
+      if (card.pricing.data?.quotes.some(quote => quote.exchangeRate.expiresAt <= Date.now())) {
+        card.pricing = { status: 503, error: 'exchange_rate_unavailable' }; expires = 0;
+      } else if (card.pricing.data) {
+        card.pricing.data.quotes = card.pricing.data.quotes.map(quote => ({ ...quote, freshness: freshness(quote.updatedAt) }));
+      }
+    }
+    return { expires, data: { schemaVersion: 2, query: search.query, currency: 'SGD', page, limit, total: search.cards.length, nextPage: page * limit < search.cards.length ? page + 1 : null, truncated: search.truncated, partial: cards.some(card => card.pricing.status !== 200), cards } };
+  }
   return async (req: IncomingMessage, res: ServerResponse, next: () => void) => {
     const rawPath = req.url ?? '';
     const url = new URL(rawPath, 'http://local');
@@ -106,34 +149,32 @@ export function marketMiddleware() {
     }
     if (path === '/api/market/health' && !url.search) { send(200, { service: 'market-prices', schemaVersion: 1, mode: 'reference', source: 'TCGdex' }); return; }
     let query: string | undefined;
+    let includePrices = false, page = 1, limit = 3;
     if (path === '/api/market/search') {
       const params = url.searchParams;
       const parsed = MarketQuerySchema.safeParse(params.get('q'));
-      if (!parsed.success || [...params.keys()].length !== 1 || params.has('q') === false) { send(400, { error: 'invalid_search' }); return; }
+      includePrices = params.get('include') === 'prices';
+      const keys = [...params.keys()];
+      const allowed = includePrices ? ['q', 'include', 'page', 'limit'] : ['q'];
+      const pageValue = params.get('page') ?? '1', limitValue = params.get('limit') ?? '3';
+      if (!parsed.success || keys.some(key => !allowed.includes(key)) || new Set(keys).size !== keys.length || !/^[1-9]\d*$/.test(pageValue) || !/^[1-9]\d*$/.test(limitValue) || Number(pageValue) > 500 || Number(limitValue) > 6) { send(400, { error: 'invalid_search' }); return; }
+      page = Number(pageValue); limit = Number(limitValue);
       query = parsed.data.toLowerCase();
     }
     const sgd = url.searchParams.get('currency') === 'SGD';
     if (!query && url.search && (!sgd || [...url.searchParams.keys()].length !== 1)) { send(400, { error: 'invalid_currency' }); return; }
     const respond = async (status: number, data: unknown, expires = Date.now()) => {
-      if (status === 200 && sgd) {
+      if (status === 200 && includePrices) {
+        const combined = await withPrices(data as MarketSearchResult, page, limit, expires);
+        send(200, combined.data, combined.expires);
+      } else if (status === 200 && sgd) {
         try { const converted = await fx.convert(data as MarketCard); send(200, converted.data, Math.min(expires, converted.expires)); }
         catch { send(503, { error: 'exchange_rate_unavailable' }); }
       } else send(status, data, expires);
     };
     const id = query ? `search:${query}` : path.startsWith('/api/market/cards/') ? path.slice('/api/market/cards/'.length) : '';
     if (!query && !MarketIdSchema.safeParse(id).success) { send(400, { error: 'invalid_card_id' }); return; }
-    const cached = cache.get(id);
-    if (cached && cached.expires > Date.now()) {
-      await respond(200, 'quotes' in cached.data ? { ...cached.data, quotes: cached.data.quotes.map(quote => ({ ...quote, freshness: freshness(quote.updatedAt) })) } : cached.data, cached.expires); return;
-    }
-    cache.delete(id);
-    let request = pending.get(id);
-    if (!request) {
-      if (providerRetryAt > Date.now()) { const result = limited('provider_rate_limited', providerRetryAt); send(result.status, result.data); return; }
-      request = load(id, query).finally(() => pending.delete(id));
-      pending.set(id, request);
-    }
-    const result = await request;
+    const result = await lookup(id, query);
     await respond(result.status, result.data, result.expires);
   };
 }

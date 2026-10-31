@@ -1,0 +1,906 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Pokémon Price API",
+    "version": "1.1.0",
+    "description": "Public read-only JSON API for pokemon-tcg. Any valid Pokémon name or partial name. No authentication. GET and OPTIONS with public CORS. Native prices remain v1; SGD and price-enriched search are v2. Reference prices are not executable offers. All HTTP errors and partial-price responses are not CDN-cached."
+  },
+  "servers": [
+    {
+      "url": "https://pokemon-price-api-omega.vercel.app"
+    }
+  ],
+  "paths": {
+    "/api/market/health": {
+      "get": {
+        "operationId": "health",
+        "summary": "Service identity; does not probe providers",
+        "responses": {
+          "200": {
+            "description": "Service capabilities",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Health"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/market/search": {
+      "get": {
+        "operationId": "searchCards",
+        "summary": "Find Pokémon cards by name, optionally with SGD pricing",
+        "description": "Default q-only requests return Search v1. include=prices returns PricedSearch v2; page and limit are only valid in that mode. Three cards by default, maximum six concurrent card lookups. Up to 500 retained matches. HTTP 200 can contain partial=true: inspect each pricing.status. No match returns an empty cards array. Duplicate or unknown parameters are rejected.",
+        "parameters": [
+          {
+            "name": "q",
+            "in": "query",
+            "description": "Full or partial English Pokémon card name",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 2,
+              "maxLength": 60,
+              "pattern": "^[\\p{L}\\p{N} .’'♀♂-]+$"
+            }
+          },
+          {
+            "name": "include",
+            "in": "query",
+            "description": "Set prices to opt into SGD price enrichment",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "prices"
+              ]
+            }
+          },
+          {
+            "name": "page",
+            "in": "query",
+            "description": "Only with include=prices",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 500,
+              "default": 1
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "description": "Only with include=prices",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 6,
+              "default": 3
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Lightweight search or bounded search with per-card SGD results",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "oneOf": [
+                    {
+                      "$ref": "#/components/schemas/Search"
+                    },
+                    {
+                      "$ref": "#/components/schemas/PricedSearch"
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid parameters",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Card not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Provider cooldown; consult Retry-After",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "Invalid or unavailable upstream",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "SGD exchange rates unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "504": {
+            "description": "Upstream timed out",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/market/cards/{id}": {
+      "get": {
+        "operationId": "getCardPrices",
+        "summary": "Get any matching card ID’s reference prices",
+        "description": "Omit currency for existing v1 native EUR/USD quotes. currency=SGD returns v2 converted quotes with original currency and FX provenance. No available prices means quotes:[], not zero.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Card ID obtained from search",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "maxLength": 80,
+              "pattern": "^[a-zA-Z0-9]+(?:[.-][a-zA-Z0-9]+)*-[a-zA-Z0-9.]+$"
+            }
+          },
+          {
+            "name": "currency",
+            "in": "query",
+            "description": "Optional SGD conversion",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "SGD"
+              ]
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Reference card prices",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "oneOf": [
+                    {
+                      "$ref": "#/components/schemas/CardNative"
+                    },
+                    {
+                      "$ref": "#/components/schemas/CardSGD"
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid parameters",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Card not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Provider cooldown; consult Retry-After",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "Invalid or unavailable upstream",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "SGD exchange rates unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "504": {
+            "description": "Upstream timed out",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/market/rates": {
+      "get": {
+        "operationId": "getSGDRates",
+        "summary": "Dated EUR and USD to SGD exchange rates",
+        "responses": {
+          "200": {
+            "description": "Rates with expiration times",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "EUR": {
+                      "type": "object",
+                      "properties": {
+                        "rate": {
+                          "type": "number",
+                          "exclusiveMinimum": 0
+                        },
+                        "date": {
+                          "type": "string",
+                          "format": "date"
+                        },
+                        "expiresAt": {
+                          "type": "integer",
+                          "description": "Unix milliseconds; must remain in the future when used."
+                        }
+                      },
+                      "required": [
+                        "rate",
+                        "date",
+                        "expiresAt"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "USD": {
+                      "type": "object",
+                      "properties": {
+                        "rate": {
+                          "type": "number",
+                          "exclusiveMinimum": 0
+                        },
+                        "date": {
+                          "type": "string",
+                          "format": "date"
+                        },
+                        "expiresAt": {
+                          "type": "integer",
+                          "description": "Unix milliseconds; must remain in the future when used."
+                        }
+                      },
+                      "required": [
+                        "rate",
+                        "date",
+                        "expiresAt"
+                      ],
+                      "additionalProperties": false
+                    }
+                  },
+                  "required": [
+                    "EUR",
+                    "USD"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "SGD exchange rates unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "Health": {
+        "type": "object",
+        "properties": {
+          "service": {
+            "type": "string",
+            "const": "market-prices"
+          },
+          "schemaVersion": {
+            "type": "number",
+            "const": 1
+          },
+          "mode": {
+            "type": "string",
+            "const": "reference"
+          },
+          "source": {
+            "type": "string",
+            "const": "TCGdex"
+          }
+        },
+        "required": [
+          "service",
+          "schemaVersion",
+          "mode",
+          "source"
+        ],
+        "additionalProperties": false
+      },
+      "Error": {
+        "type": "object",
+        "properties": {
+          "error": {
+            "type": "string"
+          },
+          "retryAfterSeconds": {
+            "type": "integer",
+            "minimum": 1
+          }
+        },
+        "required": [
+          "error"
+        ],
+        "additionalProperties": false
+      },
+      "Search": {
+        "type": "object",
+        "properties": {
+          "schemaVersion": {
+            "type": "number",
+            "const": 1
+          },
+          "query": {
+            "type": "string",
+            "minLength": 2,
+            "maxLength": 60,
+            "pattern": "^[\\p{L}\\p{N} .’'♀♂-]+$"
+          },
+          "cards": {
+            "maxItems": 500,
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "maxLength": 80,
+                  "pattern": "^[a-zA-Z0-9]+(?:[.-][a-zA-Z0-9]+)*-[a-zA-Z0-9.]+$"
+                },
+                "name": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 200
+                },
+                "image": {
+                  "type": "string",
+                  "maxLength": 300,
+                  "pattern": "^https:\\/\\/assets\\.tcgdex\\.net\\/[a-zA-Z0-9/_.-]+$"
+                }
+              },
+              "required": [
+                "id",
+                "name"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "truncated": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "schemaVersion",
+          "query",
+          "cards",
+          "truncated"
+        ],
+        "additionalProperties": false
+      },
+      "CardNative": {
+        "type": "object",
+        "properties": {
+          "schemaVersion": {
+            "type": "number",
+            "const": 1
+          },
+          "mode": {
+            "type": "string",
+            "const": "reference"
+          },
+          "source": {
+            "type": "string",
+            "const": "TCGdex"
+          },
+          "card": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string",
+                "maxLength": 80,
+                "pattern": "^[a-zA-Z0-9]+(?:[.-][a-zA-Z0-9]+)*-[a-zA-Z0-9.]+$"
+              },
+              "name": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 200
+              }
+            },
+            "required": [
+              "id",
+              "name"
+            ],
+            "additionalProperties": false
+          },
+          "fetchedAt": {
+            "type": "string",
+            "format": "date-time",
+            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+          },
+          "quotes": {
+            "maxItems": 33,
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "provider": {
+                  "type": "string",
+                  "enum": [
+                    "cardmarket",
+                    "tcgplayer"
+                  ]
+                },
+                "currency": {
+                  "type": "string",
+                  "enum": [
+                    "EUR",
+                    "USD"
+                  ]
+                },
+                "variant": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 80
+                },
+                "updatedAt": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "format": "date-time",
+                      "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "freshness": {
+                  "type": "string",
+                  "enum": [
+                    "current",
+                    "stale",
+                    "unknown"
+                  ]
+                },
+                "prices": {
+                  "type": "object",
+                  "propertyNames": {
+                    "type": "string",
+                    "enum": [
+                      "avg",
+                      "low",
+                      "trend",
+                      "avg1",
+                      "avg7",
+                      "avg30",
+                      "avg-holo",
+                      "low-holo",
+                      "trend-holo",
+                      "avg1-holo",
+                      "avg7-holo",
+                      "avg30-holo",
+                      "lowPrice",
+                      "midPrice",
+                      "highPrice",
+                      "marketPrice",
+                      "directLowPrice"
+                    ]
+                  },
+                  "additionalProperties": {
+                    "type": "number",
+                    "minimum": 0
+                  }
+                }
+              },
+              "required": [
+                "provider",
+                "currency",
+                "variant",
+                "updatedAt",
+                "freshness",
+                "prices"
+              ],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": [
+          "schemaVersion",
+          "mode",
+          "source",
+          "card",
+          "fetchedAt",
+          "quotes"
+        ],
+        "additionalProperties": false
+      },
+      "CardSGD": {
+        "type": "object",
+        "properties": {
+          "schemaVersion": {
+            "type": "number",
+            "const": 2
+          },
+          "mode": {
+            "type": "string",
+            "const": "reference"
+          },
+          "source": {
+            "type": "string",
+            "const": "TCGdex"
+          },
+          "card": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string",
+                "maxLength": 80,
+                "pattern": "^[a-zA-Z0-9]+(?:[.-][a-zA-Z0-9]+)*-[a-zA-Z0-9.]+$"
+              },
+              "name": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 200
+              }
+            },
+            "required": [
+              "id",
+              "name"
+            ],
+            "additionalProperties": false
+          },
+          "fetchedAt": {
+            "type": "string",
+            "format": "date-time",
+            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+          },
+          "quotes": {
+            "maxItems": 33,
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "provider": {
+                  "type": "string",
+                  "enum": [
+                    "cardmarket",
+                    "tcgplayer"
+                  ]
+                },
+                "currency": {
+                  "const": "SGD",
+                  "type": "string"
+                },
+                "variant": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 80
+                },
+                "updatedAt": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "format": "date-time",
+                      "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "freshness": {
+                  "type": "string",
+                  "enum": [
+                    "current",
+                    "stale",
+                    "unknown"
+                  ]
+                },
+                "prices": {
+                  "type": "object",
+                  "propertyNames": {
+                    "type": "string",
+                    "enum": [
+                      "avg",
+                      "low",
+                      "trend",
+                      "avg1",
+                      "avg7",
+                      "avg30",
+                      "avg-holo",
+                      "low-holo",
+                      "trend-holo",
+                      "avg1-holo",
+                      "avg7-holo",
+                      "avg30-holo",
+                      "lowPrice",
+                      "midPrice",
+                      "highPrice",
+                      "marketPrice",
+                      "directLowPrice"
+                    ]
+                  },
+                  "additionalProperties": {
+                    "type": "number",
+                    "minimum": 0
+                  }
+                },
+                "sourceCurrency": {
+                  "type": "string",
+                  "enum": [
+                    "EUR",
+                    "USD"
+                  ]
+                },
+                "exchangeRate": {
+                  "type": "object",
+                  "properties": {
+                    "rate": {
+                      "type": "number",
+                      "exclusiveMinimum": 0
+                    },
+                    "date": {
+                      "type": "string",
+                      "format": "date"
+                    },
+                    "expiresAt": {
+                      "type": "integer",
+                      "description": "Unix milliseconds; must remain in the future when used."
+                    }
+                  },
+                  "required": [
+                    "rate",
+                    "date",
+                    "expiresAt"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              "required": [
+                "provider",
+                "currency",
+                "variant",
+                "updatedAt",
+                "freshness",
+                "prices",
+                "sourceCurrency",
+                "exchangeRate"
+              ],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": [
+          "schemaVersion",
+          "mode",
+          "source",
+          "card",
+          "fetchedAt",
+          "quotes"
+        ],
+        "additionalProperties": false
+      },
+      "PricedSearch": {
+        "type": "object",
+        "properties": {
+          "schemaVersion": {
+            "type": "integer",
+            "const": 2
+          },
+          "query": {
+            "type": "string",
+            "minLength": 2,
+            "maxLength": 60,
+            "pattern": "^[\\p{L}\\p{N} .’'♀♂-]+$"
+          },
+          "currency": {
+            "type": "string",
+            "const": "SGD"
+          },
+          "page": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 500
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 6
+          },
+          "total": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 500,
+            "description": "Number of retained matches, not a count of the entire provider catalogue."
+          },
+          "nextPage": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "truncated": {
+            "type": "boolean",
+            "description": "True when provider search exceeded 500 results; refine the name."
+          },
+          "partial": {
+            "type": "boolean",
+            "description": "True when at least one card pricing status is not 200. Empty quotes do not count as failure."
+          },
+          "cards": {
+            "type": "array",
+            "maxItems": 6,
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "maxLength": 80,
+                  "pattern": "^[a-zA-Z0-9]+(?:[.-][a-zA-Z0-9]+)*-[a-zA-Z0-9.]+$"
+                },
+                "name": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 200
+                },
+                "image": {
+                  "type": "string",
+                  "maxLength": 300,
+                  "pattern": "^https:\\/\\/assets\\.tcgdex\\.net\\/[a-zA-Z0-9/_.-]+$"
+                },
+                "pricing": {
+                  "oneOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "status": {
+                          "type": "integer",
+                          "const": 200
+                        },
+                        "data": {
+                          "$ref": "#/components/schemas/CardSGD"
+                        }
+                      },
+                      "required": [
+                        "status",
+                        "data"
+                      ],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "status": {
+                          "type": "integer",
+                          "enum": [
+                            404,
+                            429,
+                            502,
+                            503,
+                            504
+                          ]
+                        },
+                        "error": {
+                          "type": "string"
+                        },
+                        "retryAfterSeconds": {
+                          "type": "integer",
+                          "minimum": 1
+                        }
+                      },
+                      "required": [
+                        "status",
+                        "error"
+                      ],
+                      "additionalProperties": false
+                    }
+                  ]
+                }
+              },
+              "required": [
+                "id",
+                "name",
+                "pricing"
+              ],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": [
+          "schemaVersion",
+          "query",
+          "currency",
+          "page",
+          "limit",
+          "total",
+          "nextPage",
+          "truncated",
+          "partial",
+          "cards"
+        ],
+        "additionalProperties": false
+      }
+    }
+  }
+}

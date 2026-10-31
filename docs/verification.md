@@ -26,3 +26,11 @@ GitHub repository `Perryong/pokemon-price-api` is PUBLIC, default branch main. V
 This service has no app-defined 30/minute limit and runs without the Mac. Provider outages, actual upstream 429 responses and Vercel quotas still apply. Caches/cooldowns are per instance plus Vercel CDN, not globally shared. No traffic/load benchmark or paid capacity guarantee was attempted.
 
 The existing pokemon-tracker repository and deployment were not changed. Its relative `/api/market` routes must be forwarded to this service using the README example before the app uses the new backend. Public read-only source prices are the only data served.
+
+## General card search API update — 2026-10-31
+
+- Added opt-in `include=prices` search, preserving q-only v1 responses. Default three cards, maximum six, explicit per-card failures, SGD conversion and bounded pagination.
+- `npm run check`: 83 tests and TypeScript passed, including parallel request sharing, partial-error caching, provider cooldown metadata, oldest-source cache expiry and FX expiring while another card loads.
+- `npm audit`: zero vulnerabilities. Independent whole-change review found no actionable issues; OpenAPI references and patterns were checked.
+- The homepage remains API documentation. No search UI, frontend dependencies or changes to pokemon-tracker are included.
+- The first preview attempt was blocked because its commit author used the Mac's unrecognized local email. Repository-local Git identity now uses the authenticated Perryong account's GitHub noreply address; no deployment permission was bypassed.
